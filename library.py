@@ -2,7 +2,7 @@
 
 import json
 import httpx
-from book import Book  # Aşama 2'nin book dosyasından import ediliyor
+from book import Book
 
 
 class Library:
@@ -73,7 +73,6 @@ class Library:
             print(f"Book removed: {book_to_remove}")
             return True
         else:
-            print(f"Error: Book with ISBN {isbn} not found.")
             return False
 
     def find_book(self, isbn):
@@ -83,10 +82,5 @@ class Library:
         return None
 
     def list_books(self):
-        if not self.books:
-            print("The library is empty.")
-        else:
-            print("\n--- Library Books ---")
-            for book in self.books:
-                print(book)
-            print("---------------------\n")
+
+        return self.books
