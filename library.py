@@ -1,32 +1,21 @@
 # library.py
 
 import json
-from book import Book  # Import from the new file name
+import httpx
+from book import Book  # Aşama 2'nin book dosyasından import ediliyor
 
 
 class Library:
     """
-    Manages the collection of books, including loading from and saving to a file.
+    Manages the collection of books, including fetching data from the Open Library API.
     """
 
     def __init__(self, filename="library.json"):
-        """
-        Initializes the Library.
-
-        Args:
-            filename (str): The name of the file to store book data.
-        """
         self.filename = filename
         self.books = self.load_books()
+        self.api_url = "https://openlibrary.org/api/books"
 
     def load_books(self):
-        """
-        Loads the books from the JSON file.
-        Handles the case where the file does not exist.
-
-        Returns:
-            list: A list of Book objects.
-        """
         try:
             with open(self.filename, 'r') as f:
                 data = json.load(f)
@@ -35,33 +24,48 @@ class Library:
             return []
 
     def save_books(self):
-        """
-        Saves the current list of books to the JSON file.
-        """
         with open(self.filename, 'w') as f:
             json.dump([book.to_dict() for book in self.books], f, indent=4)
 
-    def add_book(self, book):
+    def add_book(self, isbn):
         """
-        Adds a new book to the library and saves the updated list to the file.
+        Fetches book data from the Open Library API using its ISBN and adds it.
+        """
+        if self.find_book(isbn):
+            print(f"Error: Book with ISBN {isbn} already exists.")
+            return None
 
-        Args:
-            book (Book): The Book object to add.
-        """
-        self.books.append(book)
-        self.save_books()
-        print(f"Book added: {book}")
+        print(f"Fetching book data for ISBN: {isbn}...")
+        params = {"bibkeys": f"ISBN:{isbn}", "format": "json", "jscmd": "data"}
+
+        try:
+            response = httpx.get(self.api_url, params=params, timeout=10.0)
+            response.raise_for_status()
+            data = response.json()
+
+            if not data or f"ISBN:{isbn}" not in data:
+                print(f"Error: No book found with ISBN {isbn}.")
+                return None
+
+            book_data = data[f"ISBN:{isbn}"]
+            title = book_data.get("title", "Unknown Title")
+            authors = book_data.get("authors", [])
+            author_names = ", ".join([author['name'] for author in authors]) if authors else "Unknown Author"
+
+            new_book = Book(title, author_names, isbn)
+            self.books.append(new_book)
+            self.save_books()
+            print(f"Successfully added: {new_book}")
+            return new_book
+
+        except httpx.RequestError as e:
+            print(f"An error occurred while requesting {e.request.url!r}.")
+            return None
+        except httpx.HTTPStatusError as e:
+            print(f"Error response {e.response.status_code} while requesting {e.request.url!r}.")
+            return None
 
     def remove_book(self, isbn):
-        """
-        Removes a book from the library by its ISBN.
-
-        Args:
-            isbn (str): The ISBN of the book to remove.
-
-        Returns:
-            bool: True if the book was found and removed, False otherwise.
-        """
         book_to_remove = self.find_book(isbn)
         if book_to_remove:
             self.books.remove(book_to_remove)
@@ -73,25 +77,12 @@ class Library:
             return False
 
     def find_book(self, isbn):
-        """
-
-        Finds a book in the library by its ISBN.
-
-        Args:
-            isbn (str): The ISBN of the book to find.
-
-        Returns:
-            Book or None: The found Book object, or None if not found.
-        """
         for book in self.books:
             if book.isbn == isbn:
                 return book
         return None
 
     def list_books(self):
-        """
-        Prints all the books currently in the library.
-        """
         if not self.books:
             print("The library is empty.")
         else:

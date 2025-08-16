@@ -1,7 +1,6 @@
 # main.py
 
-from library import Library  # Import from the new file name
-from book import Book  # Import from the new file name
+from library import Library
 
 
 def main():
@@ -12,7 +11,7 @@ def main():
 
     while True:
         print("\n--- Library Menu ---")
-        print("1. Add Book")
+        print("1. Add Book (by ISBN)")
         print("2. Remove Book")
         print("3. List Books")
         print("4. Find Book")
@@ -21,14 +20,11 @@ def main():
         choice = input("Enter your choice (1-5): ")
 
         if choice == '1':
-            title = input("Enter title: ")
-            author = input("Enter author: ")
-            isbn = input("Enter ISBN: ")
-            if title and author and isbn:
-                new_book = Book(title, author, isbn)
-                lib.add_book(new_book)
+            isbn = input("Enter the 10 or 13-digit ISBN of the book: ").strip()
+            if isbn:
+                lib.add_book(isbn)
             else:
-                print("Error: Title, author, and ISBN cannot be empty.")
+                print("Error: ISBN cannot be empty.")
 
         elif choice == '2':
             isbn = input("Enter ISBN of the book to remove: ")
