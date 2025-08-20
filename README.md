@@ -96,3 +96,10 @@ Success Response (200 OK):
   "message": "Book successfully deleted",
   "isbn": "9780441013593"
 }
+
+## Web Page
+
+A simple interface was prepared and a web page was created that consumes the API.
+It can be reached from the link below:
+
+https://ilkerl.github.io/SimpleLibrarySystem_WebPublish/
