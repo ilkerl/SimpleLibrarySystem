@@ -1,98 +1,134 @@
-import pytest
+# test_library.py
+
 import os
+import pytest
+import httpx  # Import httpx to use its classes for mocking
 from library import Library
 from book import Book
 
 
+# This fixture is still useful. It creates a temporary, clean Library instance for each test.
 @pytest.fixture
 def library_fixture():
-    """
-    This is a pytest fixture. It sets up a temporary environment for our tests.
-    It creates a Library instance with a temporary JSON file and cleans up after the test is done.
-    """
-    # 1. Setup: Create a temporary file name for testing
+    """A fixture that creates a temporary library file for testing."""
     test_filename = "test_library.json"
+    # Ensure the file is clean before the test
+    if os.path.exists(test_filename):
+        os.remove(test_filename)
 
-    # Create a Library instance using this temporary file
     lib = Library(filename=test_filename)
+    yield lib  # Provide the library instance to the test function
 
-    # 2. Yield: Provide the Library instance to the test function
-    yield lib
-
-    # 3. Teardown: This code runs after the test function completes
-    # Clean up by removing the temporary file if it exists
+    # Teardown: Clean up the file after the test is done
     if os.path.exists(test_filename):
         os.remove(test_filename)
 
 
-def test_add_book(library_fixture):
-    """
-    Tests the functionality of adding a single book to the library.
-    """
-    # Arrange: Create a new book instance
-    book1 = Book("The Hobbit", "J.R.R. Tolkien", "12345")
+# --- NEW TESTS FOR STAGE 2 ---
 
-    # Act: Add the book using the library fixture
-    library_fixture.add_book(book1)
+def test_add_book_from_api_success(library_fixture, mocker):
+    """
+    Tests successfully adding a book by mocking a successful API response.
+    """
+    isbn = "9780345391803"
 
-    # Assert: Check if the book was actually added
+    mock_api_response_data = {
+        f"ISBN:{isbn}": {
+            "title": "The Hitchhiker's Guide to the Galaxy",
+            "authors": [{"name": "Douglas Adams"}]
+        }
+    }
+
+    # --- FIX IS HERE ---
+    # We now create a dummy Request object and pass it to the Response.
+    # The URL can be anything, as it's not actually used for a real request.
+    mock_request = httpx.Request('GET', 'https://fake.url/api')
+    mock_response = httpx.Response(
+        200,
+        json=mock_api_response_data,
+        request=mock_request  # Associate the request with the response
+    )
+
+    mocker.patch.object(httpx.Client, 'get', return_value=mock_response)
+
+    added_book = library_fixture.add_book(isbn)
+
+    assert added_book is not None
     assert len(library_fixture.books) == 1
-    assert library_fixture.books[0].title == "The Hobbit"
+    assert library_fixture.books[0].title == "The Hitchhiker's Guide to the Galaxy"
+    assert library_fixture.books[0].author == "Douglas Adams"
 
 
-def test_remove_book(library_fixture):
+def test_add_book_from_api_not_found(library_fixture, mocker):
     """
-    Tests the functionality of removing a book from the library.
+    Tests the case where the API response does not contain the book data.
     """
-    # Arrange: Add a book first so we can remove it
-    book1 = Book("Dune", "Frank Herbert", "67890")
-    library_fixture.add_book(book1)
-    assert len(library_fixture.books) == 1  # Verify it was added
+    isbn = "0000000000000"
 
-    # Act: Remove the book by its ISBN
-    was_removed = library_fixture.remove_book("67890")
+    mock_api_response_data = {}
 
-    # Assert: Check if the book list is now empty and the method returned True
+    # --- FIX IS HERE ---
+    # We also need to add the dummy request to this mocked response.
+    mock_request = httpx.Request('GET', 'https://fake.url/api')
+    mock_response = httpx.Response(
+        200,
+        json=mock_api_response_data,
+        request=mock_request
+    )
+
+    mocker.patch.object(httpx.Client, 'get', return_value=mock_response)
+
+    added_book = library_fixture.add_book(isbn)
+
+    assert added_book is None
     assert len(library_fixture.books) == 0
+
+
+def test_add_book_api_request_error(library_fixture, mocker):
+    """
+    Tests the case where the API call fails due to a network error.
+    (This test was already passing and needs no changes.)
+    """
+    isbn = "1111111111111"
+
+    mock_request = httpx.Request('GET', 'https://fake.url/api')
+    mocker.patch.object(httpx.Client, 'get', side_effect=httpx.RequestError("Network error", request=mock_request))
+
+    added_book = library_fixture.add_book(isbn)
+
+    assert added_book is None
+    assert len(library_fixture.books) == 0
+
+
+# --- STAGE 1 TESTS (STILL VALID) ---
+
+def test_remove_book_success(library_fixture):
+    """Tests removing a book that exists."""
+    book = Book("Test Title", "Test Author", "12345")
+    library_fixture.books.append(book)
+
+    was_removed = library_fixture.remove_book("12345")
+
     assert was_removed is True
-
-
-def test_remove_nonexistent_book(library_fixture):
-    """
-    Tests that trying to remove a book that doesn't exist doesn't crash the program
-    and returns False.
-    """
-    # Act: Attempt to remove a book with an ISBN that is not in the library
-    was_removed = library_fixture.remove_book("00000")
-
-    # Assert: The book list should still be empty and the method should return False
     assert len(library_fixture.books) == 0
+
+
+def test_remove_book_not_found(library_fixture):
+    """Tests trying to remove a book that does not exist."""
+    was_removed = library_fixture.remove_book("99999")
+
     assert was_removed is False
 
 
 def test_find_book(library_fixture):
-    """
-    Tests finding an existing book by its ISBN.
-    """
-    # Arrange: Add a book to find
-    book1 = Book("1984", "George Orwell", "11223")
-    library_fixture.add_book(book1)
+    """Tests finding an existing and non-existing book."""
+    book = Book("Find Me", "Author", "54321")
+    library_fixture.books.append(book)
 
-    # Act: Find the book
-    found_book = library_fixture.find_book("11223")
+    found_book = library_fixture.find_book("54321")
+    not_found_book = library_fixture.find_book("00000")
 
-    # Assert: Check that the correct book object was returned
     assert found_book is not None
-    assert found_book.isbn == "11223"
-    assert found_book.title == "1984"
+    assert found_book.title == "Find Me"
+    assert not_found_book is None
 
-
-def test_find_nonexistent_book(library_fixture):
-    """
-    Tests that searching for a book that doesn't exist returns None.
-    """
-    # Act: Search for a book that has not been added
-    found_book = library_fixture.find_book("99999")
-
-    # Assert: The result should be None
-    assert found_book is None

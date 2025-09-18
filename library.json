@@ -2,6 +2,11 @@
     {
         "title": "Dune",
         "author": "Frank Herbert",
-        "isbn": "12345"
+        "isbn": "9780441013593"
+    },
+    {
+        "title": "The Lord of the Rings",
+        "author": "J.R.R. Tolkien",
+        "isbn": "9780618640157"
     }
 ]

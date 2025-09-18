@@ -1,0 +1,8 @@
+# Python
+__pycache__/
+venv/
+.env
+.pytest_cache/  # <-- Bu satırı ekleyebiliriz.
+
+# IDE - JetBrains
+.idea/
