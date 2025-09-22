@@ -1,10 +1,10 @@
 # test_api.py
 
 from fastapi.testclient import TestClient
-from models import Book
+from app.models import Book
 
-# Import our FastAPI app instance from the api.py file
-from api import app
+# Import our FastAPI app instance from the main.py file
+from app.main import app
 
 # Create a TestClient instance. This allows us to send HTTP requests to our app
 # in our tests without needing a running server.

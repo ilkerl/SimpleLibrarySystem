@@ -10,7 +10,7 @@ import os
 
 # Import database models and CRUD functions
 import models
-import crud
+from app import crud
 
 # --- Database Setup ---
 
