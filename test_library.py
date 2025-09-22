@@ -3,8 +3,8 @@
 import os
 import pytest
 import httpx  # Import httpx to use its classes for mocking
-from library import Library
-from book import Book
+from crud import Library
+from models import Book
 
 
 # This fixture is still useful. It creates a temporary, clean Library instance for each test.

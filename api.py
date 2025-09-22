@@ -1,94 +1,130 @@
-# api.py
-
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
+from fastapi.middleware.cors import CORSMiddleware # Required import for CORS
 from pydantic import BaseModel
 from typing import List
+from sqlalchemy.orm import Session
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from dotenv import load_dotenv
+import os
 
-# We import our existing Library class. The API will use its logic.
-from library import Library
-from book import Book  # Needed for type hinting if we use it
+# Import database models and CRUD functions
+import models
+import crud
 
-# --- 1. Create the FastAPI application ---
-# This is the main object that will run our API.
+# --- Database Setup ---
+
+# Load environment variables from .env file
+load_dotenv()
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+if not DATABASE_URL:
+    raise Exception("DATABASE_URL environment variable is not set!")
+
+# Create SQLAlchemy engine
+engine = create_engine(DATABASE_URL)
+
+# Create a configured "Session" class
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+# Create database tables
+# This command creates the 'books' table if it doesn't exist
+models.Base.metadata.create_all(bind=engine)
+
+
+# --- FastAPI Application ---
+
 app = FastAPI(
-    title="Simple Library API",
-    description="An API for managing a small book library using the Open Library API.",
-    version="1.0.0"
+    title="Library API with Database",
+    description="A library management API powered by a PostgreSQL database.",
+    version="2.0.0"
 )
 
-# --- 2. Create a single, shared instance of our Library ---
-# Our entire API will use this one object to interact with the library logic and the JSON file.
-# This is efficient as it loads the books from the file only once when the server starts.
-lib = Library()
+# --- CORS Middleware Settings ---
+# We add these settings to allow browsers to make requests to our API from different origins.
+
+# List of allowed origins. "*" allows requests from any origin.
+origins = [
+    "*",
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"], # Allow all methods (GET, POST, DELETE, etc.)
+    allow_headers=["*"], # Allow all headers
+)
 
 
-# --- 3. Define Pydantic Data Models ---
-# These models define the "contract" for our API. They ensure that the data
-# we receive (input) and send (output) has the correct structure and data types.
-# FastAPI uses these models for automatic data validation and documentation.
-
+# --- Pydantic Models ---
 class BookModel(BaseModel):
-    """Data model for a Book to be sent as an API response."""
     title: str
     author: str
     isbn: str
 
+    class Config:
+        from_attributes = True
 
 class ISBNModel(BaseModel):
-    """Data model for receiving an ISBN in a POST request body."""
     isbn: str
 
 
-# --- 4. Create the API Endpoints (Path Operations) ---
+# --- Dependency ---
+def get_db():
+    """
+    A FastAPI dependency that creates a new database session for each request
+    and closes it when the request is finished.
+    """
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+# --- API Endpoints ---
 
 @app.get("/books", response_model=List[BookModel])
-def get_books():
+def get_all_books(db: Session = Depends(get_db)):
     """
-    Endpoint to retrieve a list of all books in the library.
-    Corresponds to the "list_books" functionality.
+    Fetches a list of all books from the database.
     """
-    # The list_books method in our Library class returns a list of Book objects.
-    # FastAPI will automatically convert these objects into JSON that matches the BookModel.
-    return lib.books
+    books = crud.get_all_books(db)
+    return books
 
 
 @app.post("/books", response_model=BookModel, status_code=201)
-def add_book_by_isbn(item: ISBNModel):
+def add_book_by_isbn(item: ISBNModel, db: Session = Depends(get_db)):
     """
-    Endpoint to add a new book to the library using its ISBN.
-    This reuses the logic from Stage 2.
+    Adds a new book to the library using its ISBN.
     """
-    # We get the ISBN from the request body, which is validated by Pydantic's ISBNModel.
-    new_book = lib.add_book(item.isbn)
-
-    # If the book wasn't found in the external API or already exists,
-    # lib.add_book returns None. We should return a proper HTTP error in that case.
-    if new_book is None:
+    existing_book = crud.get_book_by_isbn(db, isbn=item.isbn)
+    if existing_book:
         raise HTTPException(
-            status_code=404,  # 404 Not Found is a suitable error code
-            detail=f"Book with ISBN {item.isbn} could not be found or already exists in the library."
+            status_code=409,  # Conflict
+            detail=f"A book with this ISBN ({item.isbn}) already exists in the library."
         )
 
-    # If successful, return the newly created book object.
-    # FastAPI handles converting it to JSON and sends a 201 Created status code.
+    new_book = crud.create_book(db, isbn=item.isbn)
+    if new_book is None:
+        raise HTTPException(
+            status_code=404, # Not Found
+            detail=f"A book with this ISBN ({item.isbn}) could not be found via the Open Library API."
+        )
     return new_book
 
 
 @app.delete("/books/{isbn}", status_code=200)
-def delete_book(isbn: str):
+def delete_book(isbn: str, db: Session = Depends(get_db)):
     """
-    Endpoint to delete a book from the library by its ISBN.
-    The ISBN is passed as part of the URL path.
+    Deletes a book from the library by its ISBN.
     """
-    was_removed = lib.remove_book(isbn)
-
+    was_removed = crud.remove_book(db, isbn=isbn)
     if not was_removed:
-        # If remove_book returns False, it means no book with that ISBN was found.
         raise HTTPException(
-            status_code=404,
-            detail=f"Book with ISBN {isbn} not found in the library."
+            status_code=404, # Not Found
+            detail=f"A book with this ISBN ({isbn}) was not found in the library."
         )
-
-    # If successful, return a confirmation message.
-    # FastAPI automatically converts this dictionary to JSON.
     return {"message": "Book successfully deleted", "isbn": isbn}
+

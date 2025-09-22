@@ -1,7 +1,7 @@
 # test_api.py
 
 from fastapi.testclient import TestClient
-from book import Book
+from models import Book
 
 # Import our FastAPI app instance from the api.py file
 from api import app
