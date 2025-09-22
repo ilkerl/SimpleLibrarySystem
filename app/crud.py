@@ -1,7 +1,11 @@
 from sqlalchemy.orm import Session
 import httpx
-# CHANGED: Replaced relative import with absolute import
-import models
+
+# The import statement has been corrected.
+# We use a relative import to tell Python to look for 'models.py'
+# in the same directory (package) as this file.
+from . import models
+
 
 def get_book_by_isbn(db: Session, isbn: str):
     """
@@ -9,67 +13,59 @@ def get_book_by_isbn(db: Session, isbn: str):
     """
     return db.query(models.Book).filter(models.Book.isbn == isbn).first()
 
-def get_all_books(db: Session):
+
+def get_books(db: Session, skip: int = 0, limit: int = 100):
     """
-    Retrieves all books from the database.
+    Retrieves a list of all books from the database.
     """
-    return db.query(models.Book).all()
+    return db.query(models.Book).offset(skip).limit(limit).all()
+
 
 def create_book(db: Session, isbn: str):
     """
     Fetches book data from the Open Library API and creates a new book record in the database.
     """
-    # 1. Check if the book already exists in our database.
-    db_book = get_book_by_isbn(db, isbn=isbn)
-    if db_book:
-        print(f"Error: Book with ISBN {isbn} already exists.")
-        return None  # Indicate that the book already exists
-
-    # 2. Fetch data from the external API.
-    print(f"Fetching book data for ISBN: {isbn}...")
+    # 1. Prepare the API request to Open Library.
     api_url = "https://openlibrary.org/api/books"
     params = {"bibkeys": f"ISBN:{isbn}", "format": "json", "jscmd": "data"}
 
+    # 2. Make the API call with error handling.
     try:
         with httpx.Client() as client:
             response = client.get(api_url, params=params, timeout=10.0)
-            response.raise_for_status()
+            response.raise_for_status()  # Raise an exception for bad status codes (4xx or 5xx)
             data = response.json()
 
+        # 3. Process the API response.
         if not data or f"ISBN:{isbn}" not in data:
-            print(f"Error: No book found with ISBN {isbn} in Open Library.")
-            return None  # Indicate that the book was not found externally
+            return None  # Book not found in the external API
 
         book_data = data[f"ISBN:{isbn}"]
         title = book_data.get("title", "Unknown Title")
         authors_list = book_data.get("authors", [])
         author_names = ", ".join([author['name'] for author in authors_list]) if authors_list else "Unknown Author"
 
-        # 3. Create a new SQLAlchemy Book model instance.
-        new_book = models.Book(title=title, author=author_names, isbn=isbn)
+        # 4. Create a new Book database model instance.
+        db_book = models.Book(title=title, author=author_names, isbn=isbn)
 
-        # 4. Add the new book to the session, commit it to the database, and refresh its state.
-        db.add(new_book)
+        # 5. Add the new book to the session and commit it to the database.
+        db.add(db_book)
         db.commit()
-        db.refresh(new_book)
-        print(f"Successfully added: {new_book}")
-        return new_book
+        db.refresh(db_book)
+        return db_book
 
-    except (httpx.RequestError, httpx.HTTPStatusError) as e:
-        print(f"An error occurred with the Open Library API: {e}")
+    except (httpx.RequestError, httpx.HTTPStatusError):
+        # If the external API call fails for any reason, return None.
         return None
 
-def remove_book(db: Session, isbn: str):
+
+def delete_book(db: Session, isbn: str):
     """
     Deletes a book from the database by its ISBN.
     """
-    book_to_remove = get_book_by_isbn(db, isbn=isbn)
-    if book_to_remove:
-        db.delete(book_to_remove)
+    db_book = get_book_by_isbn(db=db, isbn=isbn)
+    if db_book:
+        db.delete(db_book)
         db.commit()
-        print(f"Book removed: {book_to_remove}")
-        return True
-    else:
-        print(f"Error: Book with ISBN {isbn} not found.")
-        return False
-
+        return db_book
+    return None

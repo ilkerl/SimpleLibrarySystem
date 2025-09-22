@@ -1,5 +1,5 @@
 from fastapi import FastAPI, HTTPException, Depends
-from fastapi.middleware.cors import CORSMiddleware # Required import for CORS
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List
 from sqlalchemy.orm import Session
@@ -8,73 +8,46 @@ from sqlalchemy.orm import sessionmaker
 from dotenv import load_dotenv
 import os
 
-# Import database models and CRUD functions
-import models
-from app import crud
+# Use relative imports because crud and models are in the same package ('app')
+from . import models, crud
 
 # --- Database Setup ---
-
-# Load environment variables from .env file
 load_dotenv()
 DATABASE_URL = os.getenv("DATABASE_URL")
-
 if not DATABASE_URL:
     raise Exception("DATABASE_URL environment variable is not set!")
 
-# Create SQLAlchemy engine
 engine = create_engine(DATABASE_URL)
-
-# Create a configured "Session" class
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-# Create database tables
-# This command creates the 'books' table if it doesn't exist
+# This command creates the 'books' table in your Neon database if it doesn't exist.
+# It runs only once when the application starts.
 models.Base.metadata.create_all(bind=engine)
 
-
-# --- FastAPI Application ---
-
+# --- FastAPI App Initialization ---
 app = FastAPI(
-    title="Library API with Database",
-    description="A library management API powered by a PostgreSQL database.",
-    version="2.0.0"
+    title="Simple Library API",
+    description="An API for managing a book library, deployed on Fly.io with a Neon database.",
+    version="1.0.0"
 )
 
-# --- CORS Middleware Settings ---
-# We add these settings to allow browsers to make requests to our API from different origins.
-
-# List of allowed origins. "*" allows requests from any origin.
-origins = [
-    "*",
-]
-
+# --- CORS Middleware ---
+# This is the crucial part that was missing after refactoring.
+# It allows web pages from any origin (like your local index.html or GitHub Pages)
+# to make requests to this API.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=["*"],  # Allows all origins
     allow_credentials=True,
-    allow_methods=["*"], # Allow all methods (GET, POST, DELETE, etc.)
-    allow_headers=["*"], # Allow all headers
+    allow_methods=["*"],  # Allows all methods (GET, POST, etc.)
+    allow_headers=["*"],  # Allows all headers
 )
-
-
-# --- Pydantic Models ---
-class BookModel(BaseModel):
-    title: str
-    author: str
-    isbn: str
-
-    class Config:
-        from_attributes = True
-
-class ISBNModel(BaseModel):
-    isbn: str
 
 
 # --- Dependency ---
 def get_db():
     """
-    A FastAPI dependency that creates a new database session for each request
-    and closes it when the request is finished.
+    Dependency that provides a database session for each request.
     """
     db = SessionLocal()
     try:
@@ -83,48 +56,58 @@ def get_db():
         db.close()
 
 
+# --- Pydantic Models (Data Schemas) ---
+class BookBase(BaseModel):
+    title: str
+    author: str
+    isbn: str
+
+
+class BookCreate(BaseModel):
+    isbn: str
+
+
+class Book(BookBase):
+    class Config:
+        from_attributes = True
+
+
 # --- API Endpoints ---
 
-@app.get("/books", response_model=List[BookModel])
-def get_all_books(db: Session = Depends(get_db)):
+@app.get("/books", response_model=List[Book], summary="Get All Books")
+def read_books(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
     """
-    Fetches a list of all books from the database.
+    Retrieve a list of all books from the library.
     """
-    books = crud.get_all_books(db)
+    books = crud.get_books(db, skip=skip, limit=limit)
     return books
 
 
-@app.post("/books", response_model=BookModel, status_code=201)
-def add_book_by_isbn(item: ISBNModel, db: Session = Depends(get_db)):
+@app.post("/books", response_model=Book, status_code=201, summary="Add a New Book by ISBN")
+def create_book_entry(book: BookCreate, db: Session = Depends(get_db)):
     """
-    Adds a new book to the library using its ISBN.
+    Add a new book to the library using its ISBN.
+    The book details are fetched from the Open Library API.
     """
-    existing_book = crud.get_book_by_isbn(db, isbn=item.isbn)
-    if existing_book:
-        raise HTTPException(
-            status_code=409,  # Conflict
-            detail=f"A book with this ISBN ({item.isbn}) already exists in the library."
-        )
+    db_book = crud.get_book_by_isbn(db, isbn=book.isbn)
+    if db_book:
+        raise HTTPException(status_code=400, detail=f"Book with ISBN {book.isbn} already exists.")
 
-    new_book = crud.create_book(db, isbn=item.isbn)
+    new_book = crud.create_book(db=db, isbn=book.isbn)
     if new_book is None:
-        raise HTTPException(
-            status_code=404, # Not Found
-            detail=f"A book with this ISBN ({item.isbn}) could not be found via the Open Library API."
-        )
+        raise HTTPException(status_code=404,
+                            detail=f"Book with ISBN {book.isbn} could not be found via Open Library API.")
+
     return new_book
 
 
-@app.delete("/books/{isbn}", status_code=200)
-def delete_book(isbn: str, db: Session = Depends(get_db)):
+@app.delete("/books/{isbn}", response_model=Book, summary="Delete a Book by ISBN")
+def delete_book_entry(isbn: str, db: Session = Depends(get_db)):
     """
-    Deletes a book from the library by its ISBN.
+    Delete a book from the library using its ISBN.
     """
-    was_removed = crud.remove_book(db, isbn=isbn)
-    if not was_removed:
-        raise HTTPException(
-            status_code=404, # Not Found
-            detail=f"A book with this ISBN ({isbn}) was not found in the library."
-        )
-    return {"message": "Book successfully deleted", "isbn": isbn}
+    deleted_book = crud.delete_book(db, isbn=isbn)
+    if deleted_book is None:
+        raise HTTPException(status_code=404, detail=f"Book with ISBN {isbn} not found in the library.")
+    return deleted_book
 
